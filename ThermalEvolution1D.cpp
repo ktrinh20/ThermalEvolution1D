@@ -21,6 +21,8 @@
 //  Description of current state:
 //      I'm currently adapting cp_arr[3] to cp_arr[n]
 
+#define _USE_MATH_DEFINES
+#include <cmath>
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -63,6 +65,11 @@ int main()
     chrono::seconds;
     auto t1 = chrono::high_resolution_clock::now();
 
+    /* Define simulation parameters */
+    const int n1 = 287 + 1;  // # of layers in deep interior
+    const int n2 = 106 * 2;  // # of layers in hydrosphere
+    const int n = 500;  // total number of dr layers
+
     /* Define physical parameters */
     double thicknesses[2] = { 1455e3, 106e3 };    // thickness of each layer [m]
     double Tsurf = 100;    // surface temperature [K]
@@ -74,15 +81,44 @@ int main()
     //double cp_arr[3] = { 1000, 840, 1930 }; // specificy heat of layers [J/kg/K]
     double kc_s = 3.0; // thermal conductivity of silicates [W/(m K)]
 
+    /* Initialize radial position arrays */
+    double dr_layer[2] = { thicknesses[0] / n1, thicknesses[1] / n2 }; // radial layer step size. Adjust for multiple actual layers later. [m]
+    double r_arr[n], dr_arr[n];
+    r_arr[0] = 0;
+    dr_arr[0] = dr_layer[0];
+    for (int j = 1; j < n; j++) {
+        if (j <= n1) {
+            r_arr[j] = r_arr[j - 1] + dr_layer[0];
+            dr_arr[j] = dr_layer[0];
+        }
+        else {
+            r_arr[j] = r_arr[j - 1] + dr_layer[1];
+            dr_arr[j] = dr_layer[1];
+        }
+    }
+
+    // define mass arrays
+    double mh_arr[n], md_arr[n], mw_arr[n], dV;
+    mh_arr[0] = 4 * M_PI / 3 * pow(r_arr[1], 3) * rho_arr[0]; // mass of hydrated silicates in layer
+    md_arr[0] = 0;  // mass of dehydrated silicates in layer
+    mw_arr[0] = 0;  // mass of water in layer
+    for (int j = 1; j < n; j++) {
+        md_arr[j] = 0;
+        dV = 4 * M_PI / 3 * (pow(r_arr[j], 3) - pow(r_arr[j - 1], 3));
+        if (j <= n1) {
+            mh_arr[j] = dV * rho_arr[0];
+            mw_arr[j] = 0;
+        }
+        else {
+            mh_arr[j] = 0;
+            mw_arr[j] = dV * rho_arr[1];
+        }
+    }
+
     /* Define temporal parameters */
     double yr2s = 86400 * 365;  // seconds in a year [s]
-    double tstart = 5e6 * yr2s;     // formation time [s]
+    double tstart = 3e6 * yr2s;     // formation time [s]
     double tend = 4.5e9 * yr2s; // time at present day [s]
-
-    /* Define simulation parameters */
-    const int n1 = 1455 + 1;  // # of layers in deep interior
-    const int n2 = 106 * 2;  // # of layers in hydrosphere
-    const int n = 1668;  // total number of dr layers
 
     /* Define specific heat stuff */
     double cp_h = 1000; // specific heat of hydrated silicates [J/kg/K]
@@ -110,31 +146,15 @@ int main()
     }
     T_arr[n - 1] = Tsurf;
 
-    /* Initialize radial position arrays */
-    double dr_layer[2] = { thicknesses[0] / n1, thicknesses[1] / n2 }; // radial layer step size. Adjust for multiple actual layers later. [m]
-    double r_arr[n], dr_arr[n];
-    r_arr[0] = 0;
-    dr_arr[0] = dr_layer[0];
-    for (int j = 1; j < n; j++) {
-        if (j <= n1) {
-            r_arr[j] = r_arr[j - 1] + dr_layer[0];
-            dr_arr[j] = dr_layer[0];
-        }
-        else {
-            r_arr[j] = r_arr[j - 1] + dr_layer[1];
-            dr_arr[j] = dr_layer[1];
-        }
-    }
-
     /* Set energetic constants */
     double xlhi = 3.33e5;    // latent heat density of water ice [J / kg]
     double xlhr = 3.77e5;   // latent heat density of hydrated silicates [J / kg]
     double Tdehyl = 550;    // lower bound temp. of silicate dehydration [K]
     double Tdehyu = 900;    // upper bound temp. of silicate dehydration [K]
     double iceheat0 = rho_arr[1] * (cp_i * dTmelt + xlhi); // heat needed for each layer to fully melt [J]
-    double rockheat0 = rho_arr[0] * (cp_h * (Tdehyu - Tdehyl) + xlhr); // heat needed for each layer to fully dehydration [J]
+    double rockheat0 = rho_arr[0] * xlhr; // latent heat needed for each layer to fully dehydration [J]
     double heat_arr[n]; // heat needed to complete a phase change [J]
-    for (int j = n1 + 1; j < n; j++) {
+    for (int j = 0; j < n; j++) {
         if (j <= n1) {
             heat_arr[j] = rockheat0;
         }
@@ -146,11 +166,11 @@ int main()
     /* Partition heat production for silicate dehydration/hydration */
     double dehys = rho_arr[0] * cp_h * (Tdehyu - Tdehyl); // total heat needed to warm throughout dehydration [J]
     double dehyl = rho_arr[0] * xlhr; // total latent heat needed to dehydrate a layer [J]
-    double fracs = dehys / rockheat0; // fraction of heat dedicated to secular warming during dehydration [unitless]
-    double fracl = dehyl / rockheat0; // fraction of heat dedicated to latent heat of dehydration [unitless]
+    double fracs = dehys / (dehys + dehyl); // fraction of heat dedicated to secular warming during dehydration [unitless]
+    double fracl = dehyl / (dehys + dehyl); // fraction of heat dedicated to latent heat of dehydration [unitless]
 
     /* Prepare to save a portion of temperature evolution results */
-    const int tclip = 4000;  // number of timesteps to save
+    const int tclip = 6000;  // number of timesteps to save
     int ss = 0; // save counter variable
 
     /* Radiogenic heating parameters */
@@ -340,7 +360,7 @@ int main()
                 Ql = Qprod * fracl; // heat dedicated to latent heat of dehydration [J]
 
                 // add/subtract from heat_arr[j]
-                heat_arr[j] += Ql;
+                heat_arr[j] -= Ql;
 
                 // adjust temperature
                 T_tmp[j] = T_arr[j] + Qsec / rho_arr[0] / cp_arr[j]; // update this when we have hydration dependent rho, cp
@@ -414,7 +434,7 @@ int main()
                 // write to file
                 out << log10(t) << "," << r_arr[j] << "," << T_arr[j] << "," << ocean_thickness <<
                     "," << fbr << "," << fout << "," << i_melt << "," << kc_arr[j] << "," << ifrz <<
-                    "," << isOcean << "," << i << ",\n";
+                    "," << isOcean << "," << i << "," << heat_arr[200] << ",\n";
             }
             ss++;
         }
