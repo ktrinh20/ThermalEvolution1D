@@ -66,8 +66,8 @@ int main()
     auto t1 = chrono::high_resolution_clock::now();
 
     /* Define simulation parameters */
-    const int n1 = 287 + 1;  // # of layers in deep interior
-    const int n2 = 106 * 2;  // # of layers in hydrosphere
+    const int n1 = 287 + 1;  // # of shells in deep interior, plus center point
+    const int n2 = 106 * 2;  // # of shells in hydrosphere
     const int n = 500;  // total number of dr layers
 
     /* Define physical parameters */
@@ -155,7 +155,8 @@ int main()
     double iceheat0 = rho_w * (cp_i * dTmelt + xlhi); // heat needed for each layer to fully melt [J / m^3]
     double rockheat0 = rho_h * xlhr; // latent heat needed for each layer to fully dehydration [J / m^3]
     double heat_arr[n]; // heat needed to complete a phase change [J / m^3]
-    for (int j = 0; j < n; j++) {
+    heat_arr[0] = 0;
+    for (int j = 1; j < n; j++) {
         if (j <= n1) {
             heat_arr[j] = rockheat0;
         }
@@ -345,16 +346,17 @@ int main()
         cond_term[i_melt] = (fout - fbr) / (dr_arr[i_melt] * rho_w * cp_i);
 
         // update temperature profile
+        cond_term[0] = cond_term[1];
         for (int j = 0; j < n; j++) {
             dTdt[j] = cond_term[j];
             if (j <= n1) dTdt[j] += H_term / cp_arr[j];
             T_tmp[j] += dTdt[j] * dt;
         }
-        T_tmp[0] = T_tmp[1];
+        //T_tmp[0] = T_tmp[1];
         T_tmp[n - 1] = Tsurf;
 
         // hydration or dehydration occurs
-        for (int j = 0; j <= n1; j++) {
+        for (int j = 1; j <= n1; j++) {
 
             // if (de)hydration should occur (Tdehyl <= T <= Tdehyu)
             if (T_tmp[j] >= Tdehyl && T_tmp[j] <= Tdehyu) {
@@ -367,9 +369,11 @@ int main()
                     X[j] = (X[j] * m_arr[j] - dmh) / (m_arr[j] - 0.13 * dmh);   // update hydrated mass fraction
                     if (X[j] > 1) {
                         X[j] = 1;
+                        T_tmp[j] = Tdehyu;
                     }
                     else if (X[j] < 0) {
                         X[j] = 0;
+                        T_tmp[j] = Tdehyl;
                     }
                     m_arr[j] -= 0.13 * dmh; // remove water from the dehydrating silicates [kg]
                 }
@@ -378,14 +382,16 @@ int main()
                     T_tmp[j] = T_tmp[j] + qp / (rho_arr[j] * cp_arr[j]);
                     if (T_tmp[j] > Tdehyu) {
                         T_tmp[j] = Tdehyu;
+                        X[j] = 0;
                     }
                     else if (T_tmp[j] < Tdehyl) {
                         T_tmp[j] = Tdehyl;
+                        X[j] = 1;
                     }
                 }
-
             }
         }
+        X[0] = X[1];    // boundary condition for center point
 
         // melting or freezing occurs
         if ((T_tmp[i_melt] >= (Tmelt - dTmelt)) || frac_melt[i_melt] > 0) {
