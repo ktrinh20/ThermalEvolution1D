@@ -98,7 +98,7 @@ int main()
 
     /* Define temporal parameters */
     double yr2s = 86400 * 365;  // seconds in a year [s]
-    double tstart = 3e6 * yr2s;     // formation time [s]
+    double tstart = 5e6 * yr2s;     // formation time [s]
     double tend = 4.5e9 * yr2s; // time at present day [s]
 
     /* Define thermal properties and mass arrays */
@@ -117,7 +117,8 @@ int main()
         }
     }
     //fQl = xlhr / (xlhr + (cp_d - cp_h) * Tdehyl + cp_h * (Tdehyu - Tdehyl)); // energy fraction going into phase change each time step during dehydration
-    fQl = 0.54;
+    fQl = 0.548381184555537;
+    //fQl = 0.54;
     fQs = 1 - fQl;  // energy fraction going into warming each time step during dehydration
 
     // recalculate mass [kg] and volume [m^3] of each shell
@@ -227,16 +228,11 @@ int main()
             dr_arr[j] = r_arr[j] - r_arr[j - 1];
         }
 
-        //for (int j = 0; j < n; j++) {
-        //    cout << dr_arr[j] << " m" << endl;
-        //}
-        //cout << endl << endl;
-
         // update material thermal properties
         for (int j = 0; j < n; j++) {
 
             if (j <= n1) {
-                rho_arr[j] = 1 / (X[j] / rho_h + (1 - X[j]) / rho_d);
+                rho_arr[j] = 1 / ((1 - X[j]) / rho_d + X[j] / rho_h);
                 //rho_arr[j] = m_arr[j] / V[j];
 
                 kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);
