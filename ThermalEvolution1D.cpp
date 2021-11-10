@@ -71,7 +71,7 @@ int main()
     /* Define temporal parameters */
     double yr2s = 86400 * 365;  // seconds in a year [s]
     double tstart = 5e6 * yr2s;     // formation time [s]
-    double tend = 4.0e9 * yr2s; // time at present day [s]
+    double tend = 4.5e9 * yr2s; // time at present day [s]
 
     /* Define physical parameters */
     double thicknesses[2] = { 1576.35e3, 87.30e3 };    // thickness of each layer [m]
