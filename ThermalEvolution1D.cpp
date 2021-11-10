@@ -10,17 +10,17 @@
 //  6)  Melt/freeze the ice shell (done)
 //  7)  Implement silicate hydration/dehydration
 //      a) Implement latent heat tracking (done)
-//      b) Incorporate specific heats (done, but revisit later for more comprehensive treatment)
+//      b) Incorporate specific heats (done)
 //      c) Incorporate thermal conductivities
-//      d) Incorporate density changes
-//      e) Incorporate conservation of mass
+//      d) Incorporate density changes (done)
+//      e) Incorporate conservation of mass (done)
 //  8)  Implement mantle convection, conditionally
 //  9)  Implement metallic core formation
-//  10)  Implement silicate melting
+//  10) Implement silicate melting
 //
-//  Description of current state:
-//      I'm currently adapting cp_arr[3] to cp_arr[n]
 
+#define _USE_MATH_DEFINES
+#include <cmath>
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -63,58 +63,31 @@ int main()
     chrono::seconds;
     auto t1 = chrono::high_resolution_clock::now();
 
+    /* Define simulation parameters */
+    const int n1 = 300;  // # of shells in deep interior, plus center point
+    const int n2 = 250;  // # of shells in hydrosphere
+    const int n = 550;  // total number of dr layers
+
+    /* Define temporal parameters */
+    double yr2s = 86400 * 365;  // seconds in a year [s]
+    double tstart = 5e6 * yr2s;     // formation time [s]
+    double tend = 4.0e9 * yr2s; // time at present day [s]
+
     /* Define physical parameters */
-    double thicknesses[2] = { 1455e3, 106e3 };    // thickness of each layer [m]
+    double thicknesses[2] = { 1576.35e3, 87.30e3 };    // thickness of each layer [m]
     double Tsurf = 100;    // surface temperature [K]
     double Tinit = 273;     // rock-metal initial temperature [K]
     double Tinit2 = 100;    // hydrosphere initial temperature [K]
     double Tmelt = 273; // melting temperature of water ice [K]
     double dTmelt = 3;  // finite interval where ice melting occurs [K]
-    double rho_arr[2] = { 3500, 1000 };  // density of layers [kg/m^3]
-    //double cp_arr[3] = { 1000, 840, 1930 }; // specificy heat of layers [J/kg/K]
-    double kc_s = 3.0; // thermal conductivity of silicates [W/(m K)]
-
-    /* Define temporal parameters */
-    double yr2s = 86400 * 365;  // seconds in a year [s]
-    double tstart = 5e6 * yr2s;     // formation time [s]
-    double tend = 4.5e9 * yr2s; // time at present day [s]
-
-    /* Define simulation parameters */
-    const int n1 = 1455 + 1;  // # of layers in deep interior
-    const int n2 = 106 * 2;  // # of layers in hydrosphere
-    const int n = 1668;  // total number of dr layers
-
-    /* Define specific heat stuff */
-    double cp_h = 1000; // specific heat of hydrated silicates [J/kg/K]
-    double cp_d = 840;  // specific heat of dehydrated silicates [J/kg/K]
-    double cp_i = 1930; // specific heat of water ice [J/kg/K]
-    double cp_arr[n];
-    for (int j = 0; j < n; j++) {
-        if (j <= n1) {
-            cp_arr[j] = cp_h;
-        }
-        else {
-            cp_arr[j] = cp_i;
-        }
-    }
-
-    /* initialize temperature array*/
-    array<double, n> T_arr, T_tmp;
-    for (int j = 0; j < (n - 1); j++) {
-        if (j <= n1) {
-            T_arr[j] = Tinit;
-        }
-        else {
-            T_arr[j] = Tinit2;
-        }
-    }
-    T_arr[n - 1] = Tsurf;
+    double kc_d = 3.0; // thermal conductivity of anhydrous silicates [W/(m K)]
+    double kc_h;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
 
     /* Initialize radial position arrays */
     double dr_layer[2] = { thicknesses[0] / n1, thicknesses[1] / n2 }; // radial layer step size. Adjust for multiple actual layers later. [m]
     double r_arr[n], dr_arr[n];
     r_arr[0] = 0;
-    dr_arr[0] = dr_layer[0];
+    dr_arr[0] = 0;
     for (int j = 1; j < n; j++) {
         if (j <= n1) {
             r_arr[j] = r_arr[j - 1] + dr_layer[0];
@@ -126,31 +99,56 @@ int main()
         }
     }
 
-    /* Set energetic constants */
-    double xlhi = 3.33e5;    // latent heat density of water ice [J / kg]
-    double xlhr = 3.77e5;   // latent heat density of hydrated silicates [J / kg]
-    double Tdehyl = 550;    // lower bound temp. of silicate dehydration [K]
-    double Tdehyu = 900;    // upper bound temp. of silicate dehydration [K]
-    double iceheat0 = rho_arr[1] * (cp_i * dTmelt + xlhi); // heat needed for each layer to fully melt [J]
-    double rockheat0 = rho_arr[0] * (cp_h * (Tdehyu - Tdehyl) + xlhr); // heat needed for each layer to fully dehydration [J]
-    double heat_arr[n]; // heat needed to complete a phase change [J]
-    for (int j = n1 + 1; j < n; j++) {
+    /* Define thermal properties and mass arrays */
+    double rho_arr[n], rho_d = 3400, rho_h = 2750, rho_w = 1000, cp_arr[n], cp_h = 1000, cp_d = 900, cp_i = 1930,
+        X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900, fQl, fQs, wf = 0.13;
+    for (int j = 0; j < n; j++) {
         if (j <= n1) {
-            heat_arr[j] = rockheat0;
+            cp_arr[j] = cp_h;   // specific heat of shell [J / (kg K)]
+            rho_arr[j] = rho_h; // density of shell [kg]
+            X[j] = 1;   // hydrated mass fraction
         }
         else {
-            heat_arr[j] = iceheat0;
+            cp_arr[j] = cp_i;
+            rho_arr[j] = rho_w;
+            X[j] = 1;
         }
     }
+    fQl = 0.548381184555537;
+    fQs = 1 - fQl;  // energy fraction going into warming each time step during dehydration
 
-    /* Partition heat production for silicate dehydration/hydration */
-    double dehys = rho_arr[0] * cp_h * (Tdehyu - Tdehyl); // total heat needed to warm throughout dehydration [J]
-    double dehyl = rho_arr[0] * xlhr; // total latent heat needed to dehydrate a layer [J]
-    double fracs = dehys / rockheat0; // fraction of heat dedicated to secular warming during dehydration [unitless]
-    double fracl = dehyl / rockheat0; // fraction of heat dedicated to latent heat of dehydration [unitless]
+    // calculate mass [kg] and volume [m^3] of each shell
+    double V[n], m_arr[n], m_init[n];
+    V[0] = 0; m_arr[0] = 0;
+    for (int j = 1; j < n; j++) {
+        V[j] = 4 * M_PI / 3 * (pow(r_arr[j], 3) - pow(r_arr[j - 1], 3));
+        m_arr[j] = V[j] * rho_arr[j];
+        m_init[j] = V[j] * rho_arr[j];;
+    }
+
+    /* initialize temperature array */
+    array<double, n> T_arr, T_tmp;
+    for (int j = 0; j < (n - 1); j++) {
+        if (j <= n1) {
+            T_arr[j] = Tinit;
+        }
+        else {
+            T_arr[j] = Tinit2;
+        }
+    }
+    T_arr[n - 1] = Tsurf;
+
+    /* Set energetic constants for ice */
+    double xlhi = 3.33e5;    // latent heat density of water ice [J / kg]
+    double iceheat0 = rho_w * (cp_i * dTmelt + xlhi); // heat needed for each layer to fully melt [J / m^3]
+    double LI_arr[n]; // heat needed to melt ice layer [J / m^3]
+    LI_arr[0] = 0;
+    for (int j = n1; j < n; j++) {
+        LI_arr[j] = iceheat0;
+    }
 
     /* Prepare to save a portion of temperature evolution results */
-    const int tclip = 4000;  // number of timesteps to save
+    const int tclip = 17000;  // number of timesteps to save
     int ss = 0; // save counter variable
 
     /* Radiogenic heating parameters */
@@ -179,8 +177,8 @@ int main()
     double t = tstart;  // time [s]
     int ifrz = 0;   // 1 = freeze, 0 = melt
     int I, i_melt;
-    double cond_term[n], H_term, dTdt[n], kc_arr[n], Kappa[n], tmp, Emelt, h1, h2, rho,
-        cp, dr, drd, dru, isOcean, fbr, fout, dt, Qprod, Qsec, Ql;
+    double cond_term[n], H_term, dTdt[n], kc_arr[n], Kappa[n], tmp, tmp2, Emelt, h1, h2, rho,
+        cp, dr, drd, dru, isOcean, fbr, fout, dt, qp, Qp[n], Qs, Ql, dmh, dVr;
     for (int i = 0; i < max_time_steps; i++) {
 
         // reset T_tmp and dTdt
@@ -205,32 +203,34 @@ int main()
             }
         }
 
-        // update rock thermal properties
+        // update material thermal properties
         for (int j = 0; j < n; j++) {
             if (j <= n1) {
-                kc_arr[j] = kc_s;
-                Kappa[j] = kc_s / rho_arr[0] / cp_arr[j];
 
+                kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);
                 // specific heat of silicates
-                if (T_arr[j] < Tdehyl) {
+                if (T_arr[j] <= Tdehyl) {
                     cp_arr[j] = cp_h;
+                    kc_arr[j] = kc_h;
                 }
-                else if (T_arr[j] <= Tdehyu) {
-                    cp_arr[j] = cp_h - (cp_h - cp_d) * (Tdehyu - T_arr[j]) / (Tdehyu - Tdehyl);
+                else if (T_arr[j] < Tdehyu) {
+                    cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);
+                    kc_arr[j] = kc_d; // use volume fraction later
                 }
                 else {
                     cp_arr[j] = cp_d;
+                    kc_arr[j] = kc_d;
                 }
             }
             else {
                 kc_arr[j] = 0.4685 + 488.12 / T_arr[j];
-                Kappa[j] = kc_arr[j] / rho_arr[1] / cp_i;
             }
+            Kappa[j] = kc_arr[j] / rho_arr[j] / cp_arr[j];
         }
 
         // determine maximum timestep, dt [s]
-        dt = 0.3 * dr_arr[0] * dr_arr[0] / Kappa[0];
-        for (int j = 0; j < n; j++) {
+        dt = 0.3 * dr_arr[1] * dr_arr[1] / Kappa[1];
+        for (int j = 1; j < n; j++) {
             tmp = 0.3 * dr_arr[j] * dr_arr[j] / Kappa[j];
             if (dt > tmp) dt = tmp;
         }
@@ -238,17 +238,15 @@ int main()
         // conductive and radiogenic heating solution
         for (int j = 1; j < (n - 1); j++) {
 
-
             // skip conduction for ocean and ocean boundaries
             if (j >= n1 && j <= i_melt + 1) continue;
 
             // determine appropriate density and specific heat
+            rho = rho_arr[j];
             if (j <= n1) {
-                rho = rho_arr[0];
                 cp = cp_arr[j];
             }
             else {
-                rho = rho_arr[1];
                 cp = cp_i;
             }
 
@@ -293,7 +291,7 @@ int main()
             // no ocean
             h2 = pow((r_arr[I] + (dr / 2)), 2) * (T_arr[I + 1] - T_arr[I]) / (dr / kc_arr[I] + dru / kc_arr[I + 1]);
         }
-        cond_term[I] = 2 / (rho_arr[0] * cp_arr[I] * dr * r_arr[I] * r_arr[I]) * (h2 - h1);
+        cond_term[I] = 2 / (rho_arr[I] * cp_arr[I] * dr * r_arr[I] * r_arr[I]) * (h2 - h1);
 
         // heat flux out of base of the ocean
         fbr = 2 * h2 / pow(r_arr[i_melt], 2);
@@ -311,15 +309,16 @@ int main()
             h1 = pow((r_arr[I] - (dr / 2)), 2) * (T_arr[I] - T_arr[I - 1]) / (dr / kc_arr[I] + drd / kc_arr[I - 1]);
         }
         h2 = pow(r_arr[I] + (dr / 2), 2) * (T_arr[I + 1] - T_arr[I]) / (dru / kc_arr[I + 1] + dr / kc_arr[I]);
-        cond_term[I] = 2 / (rho_arr[1] * cp_arr[I] * dr * r_arr[i_melt] * r_arr[i_melt]) * (h2 - h1);
+        cond_term[I] = 2 / (rho_arr[I] * cp_arr[I] * dr * r_arr[i_melt] * r_arr[i_melt]) * (h2 - h1);
 
         // heat flux out of the ocean
         fout = 2 * h1 / pow(r_arr[i_melt], 2);
 
         // power and temperature of partially melted layer
-        cond_term[i_melt] = (fout - fbr) / (dr_arr[i_melt] * rho_arr[1] * cp_i);
+        cond_term[i_melt] = (fout - fbr) / (dr_arr[i_melt] * rho_w * cp_i);
 
         // update temperature profile
+        cond_term[0] = cond_term[1];
         for (int j = 0; j < n; j++) {
             dTdt[j] = cond_term[j];
             if (j <= n1) dTdt[j] += H_term / cp_arr[j];
@@ -328,35 +327,26 @@ int main()
         T_tmp[0] = T_tmp[1];
         T_tmp[n - 1] = Tsurf;
 
-        // hydration or dehydration occurs
-        for (int j = 0; j <= n1; j++) {
+        // simple dehydration for T only
+        for (int j = 1; j <= n1; j++) {
+            if (T_tmp[j] >= Tdehyl && T_tmp[j] <= Tdehyu && dTdt[j] > 0) {
+                
+                qp = m_arr[j] * cp_arr[j] * dTdt[j] * dt;
+                T_tmp[j] = T_arr[j] + (fQs * qp) / (m_arr[j] * cp_arr[j]);
+                dmh = fQl * qp / xlhr;
+                X[j] = (X[j] * m_arr[j] - dmh) / (m_arr[j] - wf * dmh);
+                m_arr[j] -= wf * dmh;
 
-            // if dehydration should occur (Tdehyl <= T <= Tdehyu)
-            if (T_tmp[j] >= Tdehyl && T_tmp[j] <= Tdehyu) {
-
-                // partition the heat produced to secular warming and latent heat
-                Qprod = rho_arr[0] * cp_arr[j] * dTdt[j] * dt; // heat produced this timestep [J]
-                Qsec = Qprod * fracs; // heat dedicated to secular warming [J]
-                Ql = Qprod * fracl; // heat dedicated to latent heat of dehydration [J]
-
-                // add/subtract from heat_arr[j]
-                heat_arr[j] += Ql;
-
-                // adjust temperature
-                T_tmp[j] = T_arr[j] + Qsec / rho_arr[0] / cp_arr[j]; // update this when we have hydration dependent rho, cp
-
-                // account for excess energy
-                if (heat_arr[j] < 0 && Qprod > 0) {
-                    heat_arr[j] = 0;
+                // handle excess energies (for some reason, shells never fully dehydrate)
+                if (T_tmp[j] >= Tdehyu || X[j] <= 0 || m_arr[j] <= (m_init[j] * (1 - wf))) {
                     T_tmp[j] = Tdehyu;
+                    X[j] = 0;
+                    m_arr[j] = m_init[j] * (1 - wf);
                 }
-                else if (heat_arr[j] > rockheat0 && Qprod < 0) {
-                    heat_arr[j] = rockheat0;
-                    T_tmp[j] = Tdehyl;
-                }
-
             }
         }
+        X[0] = X[1];
+        T_tmp[0] = T_tmp[1];
 
         // melting or freezing occurs
         if ((T_tmp[i_melt] >= (Tmelt - dTmelt)) || frac_melt[i_melt] > 0) {
@@ -367,7 +357,7 @@ int main()
             }
             else if (T_tmp[i_melt] > (Tmelt - dTmelt)) {
                 // i_melt should completely melt
-                Emelt = (T_tmp[i_melt] - (Tmelt - dTmelt)) * rho_arr[1] * cp_i;
+                Emelt = (T_tmp[i_melt] - (Tmelt - dTmelt)) * rho_w * cp_i;
             }
             else {
                 cout << "Error occured when calculating energy for ice-water interface!" << endl;
@@ -377,20 +367,39 @@ int main()
             else if (Emelt > 0) ifrz = 0;   // melt next time step
 
             // melt/freeze stuff!
-            heat_arr[i_melt] = heat_arr[i_melt] - Emelt;
-            frac_melt[i_melt] = 1 - heat_arr[i_melt] / iceheat0;
+            LI_arr[i_melt] = LI_arr[i_melt] - Emelt;
+            frac_melt[i_melt] = 1 - LI_arr[i_melt] / iceheat0;
 
             // handle excess/deficit heat
             if (frac_melt[i_melt] > 1) {
-                heat_arr[i_melt] = 0;
+                LI_arr[i_melt] = 0;
                 frac_melt[i_melt] = 1;
             }
             else if (frac_melt[i_melt] < 0) {
-                heat_arr[i_melt] = iceheat0;
+                LI_arr[i_melt] = iceheat0;
                 frac_melt[i_melt] = 0;
             }
             T_tmp[i_melt] = Tmelt - dTmelt + frac_melt[i_melt] * dTmelt;
         }
+
+        // restructure radial profile
+        for (int j = 0; j < (n - 1); j++) {
+            if (j < n1) {
+                r_arr[j + 1] = pow(pow(r_arr[j], 3) + (3. / 4. / M_PI) * (X[j + 1] *
+                    m_arr[j + 1] / rho_h + (1 - X[j + 1]) * m_arr[j + 1] / rho_d), 1.0 / 3.0);
+            }
+            else {
+                r_arr[j + 1] = pow(pow(r_arr[j], 3) + (3. / 4. / M_PI) * m_arr[j + 1] / rho_w, 1. / 3.);
+            }
+        }
+
+        // update volume and density
+        for (int j = 1; j < n; j++) {
+            V[j] = 4 * M_PI / 3 * (pow(r_arr[j], 3) - pow(r_arr[j - 1], 3));
+            rho_arr[j] = m_arr[j] / V[j];
+            dr_arr[j] = r_arr[j] - r_arr[j - 1];
+        }
+        rho_arr[0] = rho_arr[1];
 
         // update temperature array
         for (int j = 0; j < n; j++) T_arr[j] = T_tmp[j];
@@ -400,8 +409,8 @@ int main()
 
             // calculate ocean thickness
             ocean_thickness = 0;
-            for (int j = n1; j < n; j++) {
-                ocean_thickness = ocean_thickness + frac_melt[j] * dr_layer[1];
+            for (int j = n1 + 1; j < n; j++) {
+                ocean_thickness = ocean_thickness + frac_melt[j] * dr_arr[j];
             }
 
             // write results
@@ -414,7 +423,7 @@ int main()
                 // write to file
                 out << log10(t) << "," << r_arr[j] << "," << T_arr[j] << "," << ocean_thickness <<
                     "," << fbr << "," << fout << "," << i_melt << "," << kc_arr[j] << "," << ifrz <<
-                    "," << isOcean << "," << i << ",\n";
+                    "," << m_arr[j] << "," << i << "," << X[j] << "," << rho_arr[j] << "," << dTdt[j] << ",\n";
             }
             ss++;
         }
@@ -436,4 +445,3 @@ int main()
     auto duration = chrono::duration_cast<chrono::seconds>(t2 - t1);
     cout << "Total run time = " << duration.count() << " s" << endl;
 }
-
