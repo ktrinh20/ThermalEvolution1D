@@ -64,16 +64,16 @@ int main()
     auto t1 = chrono::high_resolution_clock::now();
 
     /* Define simulation parameters */
-    const int n = 301;  // total number of dr layers
-    const bool initially_hydrated = false;   // do we start with hydrated silicates?
+    const int n = 400;  // total number of dr layers
+    const double initially_hydrated = 1;   // fraction of silicates that start hydrated
 
     /* Define temporal parameters */
     double yr2s = 86400 * 365;  // seconds in a year [s]
-    double tstart = 5e6 * yr2s;     // formation time [s]
+    double tstart = 3e6 * yr2s;     // formation time [s]
     double tend = 4.5e9 * yr2s; // time at present day [s]
 
     /* Define physical parameters */
-    double initial_radius = 1455e3;    // thickness of each layer [m]
+    double initial_radius = 1609.2e3;    // thickness of each layer [m]
     double Tsurf = 273;    // surface temperature [K]
     double Tinit = 273;     // rock-metal initial temperature [K]
     double Tmelt = 273; // melting temperature of water ice [K]
@@ -82,7 +82,7 @@ int main()
     double kc_h;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
 
     /* Initialize radial position arrays */
-    double dr_layer = initial_radius / n; // radial layer step size. Adjust for multiple actual layers later. [m]
+    double dr_layer = initial_radius / (n - 1); // radial layer step size. Adjust for multiple actual layers later. [m]
     double r_arr[n], dr_arr[n];
     r_arr[0] = 0;
     dr_arr[0] = 0;
@@ -95,16 +95,19 @@ int main()
     double rho_arr[n], rho_d = 3400, rho_h = 2750, rho_w = 1000, cp_arr[n], cp_h = 1000, cp_d = 900, cp_i = 1930,
         X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900, fQl, fQs, wf = 0.13;
     for (int j = 0; j < n; j++) {
-        if (initially_hydrated) {
-            cp_arr[j] = cp_h;   // specific heat of shell [J / (kg K)]
-            rho_arr[j] = rho_h; // density of shell [kg]
-            X[j] = 1;   // hydrated mass fraction
-        }
-        else {
-            cp_arr[j] = cp_d;
-            rho_arr[j] = rho_d;
-            X[j] = 0;
-        }
+        X[j] = initially_hydrated;
+        cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);
+        rho_arr[j] = pow((X[j] / rho_h + (1 - X[j]) / rho_d), -1);
+        //if (initially_hydrated) {
+        //    cp_arr[j] = cp_h;   // specific heat of shell [J / (kg K)]
+        //    rho_arr[j] = rho_h; // density of shell [kg]
+        //    X[j] = 1;   // hydrated mass fraction
+        //}
+        //else {
+        //    cp_arr[j] = cp_d;
+        //    rho_arr[j] = rho_d;
+        //    X[j] = 0;
+        //}
     }
     fQl = 0.548381184555537;
     fQs = 1 - fQl;  // energy fraction going into warming each time step during dehydration
@@ -116,6 +119,12 @@ int main()
         V[j] = 4 * M_PI / 3 * (pow(r_arr[j], 3) - pow(r_arr[j - 1], 3));
         m_arr[j] = V[j] * rho_arr[j];
         m_init[j] = V[j] * rho_arr[j];;
+    }
+
+    /* debug */
+    double m = 0;
+    for (int j = 1; j < n; j++) {
+        m += V[j] * rho_arr[j];
     }
 
     /* initialize temperature array */
@@ -148,7 +157,7 @@ int main()
     int ifrz = 0;   // 1 = freeze, 0 = melt
     int I, i_melt;
     double cond_term[n], H_term, dTdt[n], kc_arr[n], Kappa[n], tmp, tmp2, Emelt, h1, h2, rho,
-        cp, dr, drd, dru, fbr, fout, dt, qp, Qp[n], Qs, Ql, dmh, dVr, ocean_thickness;
+        cp, dr, drd, dru, fbr, fout, dt, qp, Qp[n], Qs, Ql, dmh, dVr, ocean_thickness, f;
     for (int i = 0; i < max_time_steps; i++) {
 
         // reset T_tmp and dTdt
@@ -160,22 +169,11 @@ int main()
 
         // update material thermal properties
         for (int j = 0; j < n; j++) {
-
-            kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);
-            // specific heat of silicates
-            if (T_arr[j] < Tdehyl && initially_hydrated) {
-                cp_arr[j] = cp_h;
-                kc_arr[j] = kc_h;
-            }
-            else if (T_arr[j] < Tdehyu && initially_hydrated) {
-                cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);
-                kc_arr[j] = kc_d; // use volume fraction later
-            }
-            else {
-                cp_arr[j] = cp_d;
-                kc_arr[j] = kc_d;
-            }
-            Kappa[j] = kc_arr[j] / rho_arr[j] / cp_arr[j];
+            kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);   // thermal conductivity of antigorite [W / (m K)]
+            f = X[j] * rho_arr[j] / rho_h;  // volume fraction of hydrated silicates
+            kc_arr[j] = f * kc_h + (1 - f) * kc_d;  // thermal conductivity of shell [W / (m K)]
+            cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);    // specific heat of shell [J / (kg K)]
+            Kappa[j] = kc_arr[j] / rho_arr[j] / cp_arr[j];  // thermal diffusivity of shell [m^2 / s]
         }
 
         // determine maximum timestep, dt [s]
