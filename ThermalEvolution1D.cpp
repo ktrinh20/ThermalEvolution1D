@@ -79,7 +79,7 @@ int main()
     double Tmelt = 273; // melting temperature of water ice [K]
     double dTmelt = 3;  // finite interval where ice melting occurs [K]
     double kc_d = 4.7; // thermal conductivity of anhydrous silicates [W/(m K)]
-    double kc_h;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
+    double kc_h = 2.7;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
 
     /* obtain initial bulk density and total radius */
     double rho_d = 3559, rho_h = 3141, rho_w = 1000, wf = 0.068, m_tot = 4.8e22, m, R;
@@ -182,7 +182,7 @@ int main()
 
         // update material thermal properties
         for (int j = 0; j < n; j++) {
-            kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);   // thermal conductivity of antigorite [W / (m K)]
+            //kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);   // thermal conductivity of antigorite [W / (m K)] (Castillo-Rogez and Lunine, 2010)
             f = X[j] * rho_arr[j] / rho_h;  // volume fraction of hydrated silicates
             kc_arr[j] = f * kc_h + (1 - f) * kc_d;  // thermal conductivity of shell [W / (m K)]
             cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);    // specific heat of shell [J / (kg K)]
