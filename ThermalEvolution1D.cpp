@@ -73,16 +73,21 @@ int main()
     double tend = 4.5e9 * yr2s; // time at present day [s]
 
     /* Define physical parameters */
-    double initial_radius = 1609.2e3;    // thickness of each layer [m]
+    //double initial_radius = 1539.4e3;    // thickness of each layer [m]
     double Tsurf = 273;    // surface temperature [K]
     double Tinit = 273;     // rock-metal initial temperature [K]
     double Tmelt = 273; // melting temperature of water ice [K]
     double dTmelt = 3;  // finite interval where ice melting occurs [K]
-    double kc_d = 3.0; // thermal conductivity of anhydrous silicates [W/(m K)]
+    double kc_d = 4.7; // thermal conductivity of anhydrous silicates [W/(m K)]
     double kc_h;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
 
+    /* obtain initial bulk density and total radius */
+    double rho_d = 3559, rho_h = 3141, rho_w = 1000, wf = 0.068, m_tot = 4.8e22, m, R;
+    R = pow(3 * m_tot / 4. / M_PI * (initially_hydrated / rho_h + (1 - initially_hydrated) / rho_d), 1. / 3.);
+    cout << "The initial radius is " << R / 1e3 << " km" << endl;
+
     /* Initialize radial position arrays */
-    double dr_layer = initial_radius / (n - 1); // radial layer step size. Adjust for multiple actual layers later. [m]
+    double dr_layer = R / (n - 1.); // radial grid spacing thickness [m]
     double r_arr[n], dr_arr[n];
     r_arr[0] = 0;
     dr_arr[0] = 0;
@@ -91,26 +96,47 @@ int main()
         dr_arr[j] = dr_layer;
     }
 
+    /* initialize temperature array */
+    array<double, n> T_arr, T_tmp;
+    for (int j = 0; j < (n - 1); j++) {
+        T_arr[j] = Tinit;
+    }
+    T_arr[n - 1] = Tsurf;
+
     /* Define thermal properties and mass arrays */
-    double rho_arr[n], rho_d = 3400, rho_h = 2750, rho_w = 1000, cp_arr[n], cp_h = 1000, cp_d = 900, cp_i = 1930,
-        X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900, fQl, fQs, wf = 0.13;
+    double rho_arr[n], cp_arr[n], cp_h, cp_d = 1000, cp_i = 1930,
+        X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900;
     for (int j = 0; j < n; j++) {
         X[j] = initially_hydrated;
+        cp_h = 1000 + 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit);
         cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);
         rho_arr[j] = pow((X[j] / rho_h + (1 - X[j]) / rho_d), -1);
-        //if (initially_hydrated) {
-        //    cp_arr[j] = cp_h;   // specific heat of shell [J / (kg K)]
-        //    rho_arr[j] = rho_h; // density of shell [kg]
-        //    X[j] = 1;   // hydrated mass fraction
-        //}
-        //else {
-        //    cp_arr[j] = cp_d;
-        //    rho_arr[j] = rho_d;
-        //    X[j] = 0;
-        //}
     }
-    fQl = 0.548381184555537;
-    fQs = 1 - fQl;  // energy fraction going into warming each time step during dehydration
+    // I assume Tinit is an ambient temperature... I should code this more rigorously later on!
+
+    // use bisection method to find energy partitioning
+    double fQl, fQs, mt, a = 0, b = 1, Xt, cpt, dmh, dQt = 1, Tt, error = 1, etol = 1e-2;
+    while (abs(error) > etol) {
+        fQl = (a + b) / 2;  // test energy partition to hydrated silicates
+        mt = 1; // test on 1 kg of anhydrous + hydrated silicates [kg]
+        Xt = initially_hydrated;    // test hydrated silicate mass fraction
+        Tt = Tdehyl;    // test temperature
+        while (Xt >= 0) {
+            cpt = cp_h * Xt + cp_d * (1 - Xt);    // test specific heat
+            dmh = fQl * dQt / xlhr;   // use 1 J to dehydrate silicates
+            Tt = (1 - fQl) * dQt / mt / cpt + Tt;
+            Xt = (Xt * mt - dmh) / (mt - wf * dmh);
+            mt = mt - wf * dmh;
+        }
+        error = Tt - Tdehyu;
+        if (error > 0) {
+            a = fQl;
+        }
+        else {
+            b = fQl;
+        }
+    }
+    fQs = 1 - fQl;
 
     // calculate mass [kg] and volume [m^3] of each shell
     double V[n], m_arr[n], m_init[n];
@@ -118,21 +144,8 @@ int main()
     for (int j = 1; j < n; j++) {
         V[j] = 4 * M_PI / 3 * (pow(r_arr[j], 3) - pow(r_arr[j - 1], 3));
         m_arr[j] = V[j] * rho_arr[j];
-        m_init[j] = V[j] * rho_arr[j];;
+        m_init[j] = V[j] * rho_arr[j];
     }
-
-    /* debug */
-    double m = 0;
-    for (int j = 1; j < n; j++) {
-        m += V[j] * rho_arr[j];
-    }
-
-    /* initialize temperature array */
-    array<double, n> T_arr, T_tmp;
-    for (int j = 0; j < (n - 1); j++) {
-        T_arr[j] = Tinit;
-    }
-    T_arr[n - 1] = Tsurf;
 
     /* Prepare to save a portion of temperature evolution results */
     const int tclip = 20;  // number of timesteps to save
@@ -157,7 +170,7 @@ int main()
     int ifrz = 0;   // 1 = freeze, 0 = melt
     int I, i_melt;
     double cond_term[n], H_term, dTdt[n], kc_arr[n], Kappa[n], tmp, tmp2, Emelt, h1, h2, rho,
-        cp, dr, drd, dru, fbr, fout, dt, qp, Qp[n], Qs, Ql, dmh, dVr, ocean_thickness, f;
+        cp, dr, drd, dru, fbr, fout, dt, qp, Qp[n], Qs, Ql, dVr, mw, f;
     for (int i = 0; i < max_time_steps; i++) {
 
         // reset T_tmp and dTdt
@@ -254,6 +267,13 @@ int main()
             rho_arr[0] = rho_arr[1];
         }
 
+        // calculate total radius (silicates + water liquid/ice shell)
+        m = 0;
+        for (int j = 0; j < n; j++) {
+            m += m_arr[j];
+        }
+        R = pow((m_tot - m) * (3. / (4. * M_PI * rho_w)) + pow(r_arr[n - 1], 3), 1./3.);
+
         // update temperature array
         for (int j = 0; j < n; j++) T_arr[j] = T_tmp[j];
 
@@ -262,8 +282,8 @@ int main()
 
             // write results
             for (int j = 0; j < n; j++) {
-                out << log10(t) << "," << r_arr[j] << "," << T_arr[j] << "," << ocean_thickness <<
-                    "," << fbr << "," << fout << "," << i_melt << "," << kc_arr[j] << "," << ifrz <<
+                out << log10(t) << "," << r_arr[j] << "," << T_arr[j] << "," << R <<
+                    "," << fbr << "," << fout << "," << i_melt << "," << kc_arr[j] << "," << initially_hydrated <<
                     "," << m_arr[j] << "," << i << "," << X[j] << "," << rho_arr[j] << "," << dTdt[j] << ",\n";
             }
             ss++;
