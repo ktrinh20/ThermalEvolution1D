@@ -104,11 +104,11 @@ int main()
     T_arr[n - 1] = Tsurf;
 
     /* Define thermal properties and mass arrays */
-    double rho_arr[n], cp_arr[n], cp_h = 1000, cp_d = 900, cp_i = 1930,
+    double rho_arr[n], cp_arr[n], cp_h, cp_d = 900, cp_i = 1930,
         X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900;
     for (int j = 0; j < n; j++) {
         X[j] = initially_hydrated;
-        //cp_h = 1000 + 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit);
+        cp_h = 1000 + 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit);
         cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);
         rho_arr[j] = pow((X[j] / rho_h + (1 - X[j]) / rho_d), -1);
     }
@@ -122,7 +122,7 @@ int main()
         Xt = initially_hydrated;    // test hydrated silicate mass fraction
         Tt = Tdehyl;    // test temperature
         while (Xt >= 0) {
-            //cp_h = 620 * (Tt - Tinit) / (Tdehyu - Tinit) + 1000;
+            cp_h = 620 * (Tt - Tinit) / (Tdehyu - Tinit) + 1000;
             cpt = cp_h * Xt + cp_d * (1 - Xt);    // test specific heat
             dmh = fQl * dQt / xlhr;   // use 1 J to dehydrate silicates
             Tt = (1 - fQl) * dQt / mt / cpt + Tt;
@@ -187,7 +187,7 @@ int main()
             //kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);   // thermal conductivity of antigorite [W / (m K)] (Castillo-Rogez and Lunine, 2010)
             f = X[j] * rho_arr[j] / rho_h;  // volume fraction of hydrated silicates
             kc_arr[j] = f * kc_h + (1 - f) * kc_d;  // thermal conductivity of shell [W / (m K)]
-            //cp_h = 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit) + 1000;
+            cp_h = 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit) + 1000;
             cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);    // specific heat of shell [J / (kg K)]
             Kappa[j] = kc_arr[j] / rho_arr[j] / cp_arr[j];  // thermal diffusivity of shell [m^2 / s]
         }
