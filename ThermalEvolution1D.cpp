@@ -64,12 +64,12 @@ int main()
     auto t1 = chrono::high_resolution_clock::now();
 
     /* Define simulation parameters */
-    const int n = 400;  // total number of dr layers
-    const double initially_hydrated = 1;   // fraction of silicates that start hydrated
+    const int n = 350;  // total number of dr layers
+    const double initially_hydrated = 0.5;   // fraction of silicates that start hydrated
 
     /* Define temporal parameters */
     double yr2s = 86400 * 365;  // seconds in a year [s]
-    double tstart = 3e6 * yr2s;     // formation time [s]
+    double tstart = 5e6 * yr2s;     // formation time [s]
     double tend = 4.5e9 * yr2s; // time at present day [s]
 
     /* Define physical parameters */
@@ -104,11 +104,11 @@ int main()
     T_arr[n - 1] = Tsurf;
 
     /* Define thermal properties and mass arrays */
-    double rho_arr[n], cp_arr[n], cp_h, cp_d = 1000, cp_i = 1930,
+    double rho_arr[n], cp_arr[n], cp_h = 1000, cp_d = 900, cp_i = 1930,
         X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900;
     for (int j = 0; j < n; j++) {
         X[j] = initially_hydrated;
-        cp_h = 1000 + 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit);
+        //cp_h = 1000 + 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit);
         cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);
         rho_arr[j] = pow((X[j] / rho_h + (1 - X[j]) / rho_d), -1);
     }
@@ -122,6 +122,7 @@ int main()
         Xt = initially_hydrated;    // test hydrated silicate mass fraction
         Tt = Tdehyl;    // test temperature
         while (Xt >= 0) {
+            //cp_h = 620 * (Tt - Tinit) / (Tdehyu - Tinit) + 1000;
             cpt = cp_h * Xt + cp_d * (1 - Xt);    // test specific heat
             dmh = fQl * dQt / xlhr;   // use 1 J to dehydrate silicates
             Tt = (1 - fQl) * dQt / mt / cpt + Tt;
@@ -137,6 +138,7 @@ int main()
         }
     }
     fQs = 1 - fQl;
+    cout << "Fraction of heat dedicated to dehydration = " << fQl * 100 << " %" << endl;
 
     // calculate mass [kg] and volume [m^3] of each shell
     double V[n], m_arr[n], m_init[n];
@@ -185,6 +187,7 @@ int main()
             //kc_h = 1 / (0.404 + 0.000246 * T_arr[j]);   // thermal conductivity of antigorite [W / (m K)] (Castillo-Rogez and Lunine, 2010)
             f = X[j] * rho_arr[j] / rho_h;  // volume fraction of hydrated silicates
             kc_arr[j] = f * kc_h + (1 - f) * kc_d;  // thermal conductivity of shell [W / (m K)]
+            //cp_h = 620 * (T_arr[j] - Tinit) / (Tdehyu - Tinit) + 1000;
             cp_arr[j] = cp_h * X[j] + cp_d * (1 - X[j]);    // specific heat of shell [J / (kg K)]
             Kappa[j] = kc_arr[j] / rho_arr[j] / cp_arr[j];  // thermal diffusivity of shell [m^2 / s]
         }
@@ -242,10 +245,11 @@ int main()
                     m_arr[j] -= wf * dmh;
 
                     // handle excess energies (for some reason, shells never fully dehydrate)
-                    if (T_tmp[j] >= Tdehyu || X[j] <= 0 || m_arr[j] <= (m_init[j] * (1 - wf))) {
+                    // my mass check is incorrect for partially hydrated start!
+                    if (T_tmp[j] >= Tdehyu || X[j] <= 0 || m_arr[j] <= (initially_hydrated * m_init[j] * (1 - wf) + (1 - initially_hydrated) * m_init[j])) {
                         T_tmp[j] = Tdehyu;
                         X[j] = 0;
-                        m_arr[j] = m_init[j] * (1 - wf);
+                        m_arr[j] = initially_hydrated * m_init[j] * (1 - wf) + (1 - initially_hydrated) * m_init[j];
                     }
                 }
             }
@@ -273,6 +277,7 @@ int main()
             m += m_arr[j];
         }
         R = pow((m_tot - m) * (3. / (4. * M_PI * rho_w)) + pow(r_arr[n - 1], 3), 1./3.);
+        //cout << "Updated radius = " << R / 1e3 << " km" << endl;
 
         // update temperature array
         for (int j = 0; j < n; j++) T_arr[j] = T_tmp[j];
