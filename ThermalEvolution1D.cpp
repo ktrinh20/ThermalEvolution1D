@@ -65,7 +65,7 @@ int main()
 
     /* Define simulation parameters */
     const int n = 350;  // total number of dr layers
-    const double initially_hydrated = 0.5;   // fraction of silicates that start hydrated
+    const double initially_hydrated = 1;   // fraction of silicates that start hydrated
 
     /* Define temporal parameters */
     double yr2s = 86400 * 365;  // seconds in a year [s]
@@ -77,7 +77,6 @@ int main()
     double Tsurf = 273;    // surface temperature [K]
     double Tinit = 273;     // rock-metal initial temperature [K]
     double Tmelt = 273; // melting temperature of water ice [K]
-    double dTmelt = 3;  // finite interval where ice melting occurs [K]
     double kc_d = 4.7; // thermal conductivity of anhydrous silicates [W/(m K)]
     double kc_h = 2.7;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
 
@@ -172,7 +171,7 @@ int main()
     int ifrz = 0;   // 1 = freeze, 0 = melt
     int I, i_melt;
     double cond_term[n], H_term, dTdt[n], kc_arr[n], Kappa[n], tmp, tmp2, Emelt, h1, h2, rho,
-        cp, dr, drd, dru, fbr, fout, dt, qp, Qp[n], Qs, Ql, dVr, mw, f;
+        cp, dr, drd, dru, fbr, fout, dt, qp, Qp[n], Qs, Ql, dVr, f;
     for (int i = 0; i < max_time_steps; i++) {
 
         // reset T_tmp and dTdt
