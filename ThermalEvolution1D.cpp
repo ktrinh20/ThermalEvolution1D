@@ -77,7 +77,7 @@ int main()
     double Tsurf = 273;    // surface temperature [K]
     double Tinit = 273;     // rock-metal initial temperature [K]
     double Tmelt = 273; // melting temperature of water ice [K]
-    double kc_d = 4.7; // thermal conductivity of anhydrous silicates [W/(m K)]
+    double kc_d = 3.7; // thermal conductivity of anhydrous silicates [W/(m K)]
     double kc_h = 2.7;    // temperature-dependent thermal conductivity of antigorite [W/(m K)]
 
     /* obtain initial bulk density and total radius */
@@ -103,7 +103,7 @@ int main()
     T_arr[n - 1] = Tsurf;
 
     /* Define thermal properties and mass arrays */
-    double rho_arr[n], cp_arr[n], cp_h, cp_d = 900, cp_i = 1930,
+    double rho_arr[n], cp_arr[n], cp_h, cp_d = 1000, cp_i = 1930,
         X[n], xlhr = 3.77e5, Tdehyl = 550, Tdehyu = 900;
     for (int j = 0; j < n; j++) {
         X[j] = initially_hydrated;
@@ -115,29 +115,32 @@ int main()
 
     // use bisection method to find energy partitioning
     double fQl, fQs, mt, a = 0, b = 1, Xt, cpt, dmh, dQt = 1, Tt, error = 1, etol = 1e-2;
-    while (abs(error) > etol) {
-        fQl = (a + b) / 2;  // test energy partition to hydrated silicates
-        mt = 1; // test on 1 kg of anhydrous + hydrated silicates [kg]
-        Xt = initially_hydrated;    // test hydrated silicate mass fraction
-        Tt = Tdehyl;    // test temperature
-        while (Xt >= 0) {
-            cp_h = 620 * (Tt - Tinit) / (Tdehyu - Tinit) + 1000;
-            cpt = cp_h * Xt + cp_d * (1 - Xt);    // test specific heat
-            dmh = fQl * dQt / xlhr;   // use 1 J to dehydrate silicates
-            Tt = (1 - fQl) * dQt / mt / cpt + Tt;
-            Xt = (Xt * mt - dmh) / (mt - wf * dmh);
-            mt = mt - wf * dmh;
+    if (initially_hydrated) {
+        while (abs(error) > etol) {
+            fQl = (a + b) / 2;  // test energy partition to hydrated silicates
+            mt = 1; // test on 1 kg of anhydrous + hydrated silicates [kg]
+            Xt = initially_hydrated;    // test hydrated silicate mass fraction
+            Tt = Tdehyl;    // test temperature
+            while (Xt >= 0) {
+                cp_h = 620 * (Tt - Tinit) / (Tdehyu - Tinit) + 1000;
+                cpt = cp_h * Xt + cp_d * (1 - Xt);    // test specific heat
+                dmh = fQl * dQt / xlhr;   // use 1 J to dehydrate silicates
+                Tt = (1 - fQl) * dQt / mt / cpt + Tt;
+                Xt = (Xt * mt - dmh) / (mt - wf * dmh);
+                mt = mt - wf * dmh;
+            }
+            error = Tt - Tdehyu;
+            if (error > 0) {
+                a = fQl;
+            }
+            else {
+                b = fQl;
+            }
         }
-        error = Tt - Tdehyu;
-        if (error > 0) {
-            a = fQl;
-        }
-        else {
-            b = fQl;
-        }
+        fQs = 1 - fQl;
+        cout << "Fraction of heat dedicated to dehydration = " << fQl * 100 << " %" << endl;
     }
-    fQs = 1 - fQl;
-    cout << "Fraction of heat dedicated to dehydration = " << fQl * 100 << " %" << endl;
+
 
     // calculate mass [kg] and volume [m^3] of each shell
     double V[n], m_arr[n], m_init[n];
@@ -161,6 +164,10 @@ int main()
         H0[i] *= conc[i];
         lambda[i] = log(2) / halflife[i] / yr2s;
     }
+
+    double total_tidal = 1e12;  // total amount of tidal heat dissipated [W]
+    double tidal_frac = 0.1;  // portion of tidal heating dissipated in silicates
+    double tidal_term = tidal_frac * total_tidal / m_tot;   // amount of tidal heating in silicates by mass [W / kg]
 
     /* Initialize file to write to */
     ofstream out("T_evol.txt");
@@ -226,7 +233,7 @@ int main()
         // update temperature profile
         cond_term[0] = cond_term[1];
         for (int j = 1; j < (n - 1); j++) {
-            dTdt[j] = cond_term[j] + H_term / cp_arr[j];
+            dTdt[j] = cond_term[j] + (H_term + tidal_term) / cp_arr[j];
             T_tmp[j] += dTdt[j] * dt;
         }
         T_tmp[0] = T_tmp[1];
